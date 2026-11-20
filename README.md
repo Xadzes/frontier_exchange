@@ -37,3 +37,7 @@ The server validates item compatibility, conflicts, chapter access, maximum
 level, and payment, then applies the enchantment and deducts resources as one
 transaction. The UI only displays the quote returned by the server; it never
 calculates the price or consumes experience.
+
+The default fixed base prices are 8 iron ingots for Mending and 7 for Silk
+Touch. Both use the `RARE` multiplier, so the default final prices are 16 and
+14 iron ingots respectively.

@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import com.google.gson.GsonBuilder;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
@@ -68,44 +69,53 @@ public final class ArmoryEnchantingService {
             Map<Category, BigDecimal> newMultipliers = new HashMap<>();
             EnchantmentRule newDefaultRule;
 
+            JsonObject root;
             try (var reader = Files.newBufferedReader(configFile, StandardCharsets.UTF_8)) {
                 JsonElement rootElement = JsonParser.parseReader(reader);
                 if (!rootElement.isJsonObject()) {
                     throw new JsonParseException("Config root must be a JSON object");
                 }
-                JsonObject root = rootElement.getAsJsonObject();
-                newDefaultRule = parseRule(requiredObject(root, "default_rule"));
+                root = rootElement.getAsJsonObject();
+            }
 
-                JsonObject multiplierObject = requiredObject(root, "category_multipliers");
-                for (Category category : Category.values()) {
-                    if (!multiplierObject.has(category.name())) {
-                        throw new JsonParseException("Missing multiplier for " + category);
-                    }
-                    BigDecimal multiplier = new BigDecimal(multiplierObject.get(category.name()).getAsString());
-                    if (multiplier.signum() <= 0 || multiplier.compareTo(BigDecimal.valueOf(100)) > 0) {
-                        throw new JsonParseException("Multiplier for " + category + " must be between 0 and 100");
-                    }
-                    newMultipliers.put(category, multiplier);
+            if (ensureSilkTouchPrice(root)) {
+                Files.writeString(configFile,
+                        new GsonBuilder().setPrettyPrinting().create().toJson(root),
+                        StandardCharsets.UTF_8);
+                LOGGER.info("Added default Silk Touch price to {}", configFile);
+            }
+
+            newDefaultRule = parseRule(requiredObject(root, "default_rule"));
+
+            JsonObject multiplierObject = requiredObject(root, "category_multipliers");
+            for (Category category : Category.values()) {
+                if (!multiplierObject.has(category.name())) {
+                    throw new JsonParseException("Missing multiplier for " + category);
                 }
-
-                JsonObject transitionObject = requiredObject(root, "level_transition_costs");
-                for (String levelKey : transitionObject.keySet()) {
-                    int level = Integer.parseInt(levelKey);
-                    if (level < 1 || level > Enchantment.MAX_LEVEL) {
-                        throw new JsonParseException("Invalid transition level " + levelKey);
-                    }
-                    newLevelCosts.put(level, parsePriceList(transitionObject.getAsJsonArray(levelKey)));
+                BigDecimal multiplier = new BigDecimal(multiplierObject.get(category.name()).getAsString());
+                if (multiplier.signum() <= 0 || multiplier.compareTo(BigDecimal.valueOf(100)) > 0) {
+                    throw new JsonParseException("Multiplier for " + category + " must be between 0 and 100");
                 }
+                newMultipliers.put(category, multiplier);
+            }
 
-                JsonObject enchantmentObject = requiredObject(root, "enchantments");
-                for (String id : enchantmentObject.keySet()) {
-                    try {
-                        ResourceLocation enchantmentId = ResourceLocation.parse(id);
-                        EnchantmentRule rule = parseRule(enchantmentObject.getAsJsonObject(id));
-                        newRules.put(enchantmentId.toString(), rule);
-                    } catch (RuntimeException exception) {
-                        LOGGER.error("Ignoring invalid armory enchantment rule '{}': {}", id, exception.getMessage());
-                    }
+            JsonObject transitionObject = requiredObject(root, "level_transition_costs");
+            for (String levelKey : transitionObject.keySet()) {
+                int level = Integer.parseInt(levelKey);
+                if (level < 1 || level > Enchantment.MAX_LEVEL) {
+                    throw new JsonParseException("Invalid transition level " + levelKey);
+                }
+                newLevelCosts.put(level, parsePriceList(transitionObject.getAsJsonArray(levelKey)));
+            }
+
+            JsonObject enchantmentObject = requiredObject(root, "enchantments");
+            for (String id : enchantmentObject.keySet()) {
+                try {
+                    ResourceLocation enchantmentId = ResourceLocation.parse(id);
+                    EnchantmentRule rule = parseRule(enchantmentObject.getAsJsonObject(id));
+                    newRules.put(enchantmentId.toString(), rule);
+                } catch (RuntimeException exception) {
+                    LOGGER.error("Ignoring invalid armory enchantment rule '{}': {}", id, exception.getMessage());
                 }
             }
 
@@ -445,6 +455,41 @@ public final class ArmoryEnchantingService {
         return json.get(key).getAsString();
     }
 
+    private static boolean ensureSilkTouchPrice(JsonObject root) {
+        if (!root.has("default_rule") || !root.get("default_rule").isJsonObject()
+                || !root.has("category_multipliers") || !root.get("category_multipliers").isJsonObject()
+                || !root.has("level_transition_costs") || !root.get("level_transition_costs").isJsonObject()
+                || !root.has("enchantments") || !root.get("enchantments").isJsonObject()) {
+            return false;
+        }
+
+        JsonObject enchantments = root.getAsJsonObject("enchantments");
+        JsonObject silkTouch;
+        if (enchantments.has("minecraft:silk_touch")) {
+            if (!enchantments.get("minecraft:silk_touch").isJsonObject()) {
+                return false;
+            }
+            silkTouch = enchantments.getAsJsonObject("minecraft:silk_touch");
+        } else {
+            silkTouch = new JsonObject();
+            silkTouch.addProperty("category", "RARE");
+            silkTouch.addProperty("unlock_chapter", "frontier");
+            enchantments.add("minecraft:silk_touch", silkTouch);
+        }
+
+        if (silkTouch.has("fixed_price")) {
+            return false;
+        }
+
+        com.google.gson.JsonArray price = new com.google.gson.JsonArray();
+        JsonObject iron = new JsonObject();
+        iron.addProperty("item", "minecraft:iron_ingot");
+        iron.addProperty("count", 7);
+        price.add(iron);
+        silkTouch.add("fixed_price", price);
+        return true;
+    }
+
     private static JsonObject requiredObject(JsonObject json, String key) {
         if (!json.has(key) || !json.get(key).isJsonObject()) {
             throw new JsonParseException("Missing object '" + key + "'");
@@ -507,7 +552,7 @@ public final class ArmoryEnchantingService {
                 "minecraft:fortune": {"category":"ADVANCED","unlock_chapter":"supply"},
                 "minecraft:looting": {"category":"ADVANCED","unlock_chapter":"supply"},
                 "minecraft:mending": {"category":"RARE","unlock_chapter":"frontier","fixed_price":[{"item":"minecraft:iron_ingot","count":8}]},
-                "minecraft:silk_touch": {"category":"RARE","unlock_chapter":"frontier"}
+                "minecraft:silk_touch": {"category":"RARE","unlock_chapter":"frontier","fixed_price":[{"item":"minecraft:iron_ingot","count":7}]}
               }
             }
             """;
