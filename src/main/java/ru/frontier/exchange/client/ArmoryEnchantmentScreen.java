@@ -5,20 +5,27 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import ru.frontier.exchange.menu.ArmoryEnchantmentMenu;
+import ru.frontier.exchange.network.ArmoryEnchantRequestPayload;
+import ru.frontier.exchange.network.ArmoryQuoteRequestPayload;
+import ru.frontier.exchange.network.ArmoryQuoteResponsePayload;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @OnlyIn(Dist.CLIENT)
 public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEnchantmentMenu> {
@@ -39,6 +46,13 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
     private int listY;
     private int listWidth;
     private int listRows;
+    private static int quoteRequestSequence;
+    private int activeQuoteRequestId = -1;
+    private Button confirmButton;
+    private String lastQuoteEnchantment = "";
+    private int lastQuoteLevel;
+    private ItemStack lastQuoteTarget = ItemStack.EMPTY;
+    private List<ItemStack> lastQuoteInventory = List.of();
 
     public ArmoryEnchantmentScreen(ArmoryEnchantmentMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
@@ -50,6 +64,7 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
     @Override
     protected void init() {
         super.init();
+        ArmoryClientState.clear();
         listX = leftPos + 83;
         listY = topPos + 67;
         listWidth = 176;
@@ -68,8 +83,8 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
 
         addButton("−", leftPos + 289, topPos + 121, 20, () -> changeLevel(-1));
         addButton("+", leftPos + 335, topPos + 121, 20, () -> changeLevel(1));
-        Button applyButton = addButton("Подтвердить", leftPos + 274, topPos + 228, 78, () -> {});
-        applyButton.active = false;
+        confirmButton = addButton("Подтвердить", leftPos + 274, topPos + 228, 78, this::confirm);
+        confirmButton.active = false;
         refreshEnchantments();
     }
 
@@ -97,8 +112,8 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
         }
         int current = currentLevel(selected);
         int maxLevel = selected.value().getMaxLevel();
-        selectedLevel = Math.min(maxLevel, Math.max(Math.max(1, current + 1),
-                selectedLevel + offset));
+        selectedLevel = Math.max(Math.max(1, current + 1),
+                Math.min(maxLevel, selectedLevel + offset));
     }
 
     private void refreshEnchantments() {
@@ -179,6 +194,93 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
         return preview;
     }
 
+    private void updateQuoteRequest() {
+        ItemStack target = menu.getTargetStack();
+        String enchantmentId = selected == null
+                ? ""
+                : selected.unwrapKey().map(key -> key.location().toString()).orElse("");
+        if (target.isEmpty() || enchantmentId.isEmpty()) {
+            lastQuoteEnchantment = "";
+            lastQuoteLevel = 0;
+            lastQuoteTarget = ItemStack.EMPTY;
+            lastQuoteInventory = List.of();
+            activeQuoteRequestId = -1;
+            confirmButton.active = false;
+            return;
+        }
+
+        if (!enchantmentId.equals(lastQuoteEnchantment)
+                || selectedLevel != lastQuoteLevel
+                || !ItemStack.matches(target, lastQuoteTarget)
+                || !samePlayerInventory()) {
+            activeQuoteRequestId = nextQuoteRequestId();
+            PacketDistributor.sendToServer(new ArmoryQuoteRequestPayload(
+                    menu.containerId, activeQuoteRequestId, enchantmentId, selectedLevel));
+            lastQuoteEnchantment = enchantmentId;
+            lastQuoteLevel = selectedLevel;
+            lastQuoteTarget = target.copy();
+            lastQuoteInventory = copyPlayerInventory();
+            confirmButton.active = false;
+        }
+
+        ArmoryQuoteResponsePayload quote = matchingQuote(enchantmentId, selectedLevel);
+        confirmButton.active = quote != null && quote.valid() && quote.affordable()
+                && !ArmoryClientState.isTransactionPending();
+    }
+
+    private static int nextQuoteRequestId() {
+        if (quoteRequestSequence == Integer.MAX_VALUE) {
+            quoteRequestSequence = 0;
+        }
+        return ++quoteRequestSequence;
+    }
+
+    private ArmoryQuoteResponsePayload matchingQuote(String enchantmentId, int level) {
+        ArmoryQuoteResponsePayload quote = ArmoryClientState.getQuote();
+        if (quote == null || quote.requestId() != activeQuoteRequestId
+                || !quote.enchantmentId().equals(enchantmentId)
+                || quote.targetLevel() != level
+                || !ItemStack.matches(menu.getTargetStack(), lastQuoteTarget)) {
+            return null;
+        }
+        return quote;
+    }
+
+    private boolean samePlayerInventory() {
+        List<ItemStack> current = Minecraft.getInstance().player.getInventory().items;
+        if (current.size() != lastQuoteInventory.size()) {
+            return false;
+        }
+        for (int i = 0; i < current.size(); i++) {
+            if (!ItemStack.matches(current.get(i), lastQuoteInventory.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private List<ItemStack> copyPlayerInventory() {
+        return Minecraft.getInstance().player.getInventory().items.stream()
+                .map(ItemStack::copy)
+                .toList();
+    }
+
+    private void confirm() {
+        if (selected == null) {
+            return;
+        }
+        String enchantmentId = selected.unwrapKey().map(key -> key.location().toString()).orElse("");
+        ArmoryQuoteResponsePayload quote = matchingQuote(enchantmentId, selectedLevel);
+        if (quote == null || !quote.valid() || !quote.affordable()
+                || ArmoryClientState.isTransactionPending()) {
+            return;
+        }
+        ArmoryClientState.beginTransaction();
+        confirmButton.active = false;
+        PacketDistributor.sendToServer(new ArmoryEnchantRequestPayload(
+                menu.containerId, enchantmentId, selectedLevel, UUID.randomUUID()));
+    }
+
     @Override
     protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
         graphics.fill(0, 0, width, height, 0xE0060606);
@@ -218,10 +320,34 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
             graphics.drawCenteredString(font, "Уровень " + selectedLevel,
                     leftPos + 322, topPos + 127, GOLD);
         }
-        graphics.drawString(font, "Стоимость: будет настроена позже",
-                leftPos + 270, topPos + 157, MUTED);
-        graphics.drawString(font, "Подтверждение появится после настройки цен",
-                leftPos + 76, topPos + 270, MUTED);
+        String selectedId = selected == null
+                ? ""
+                : selected.unwrapKey().map(key -> key.location().toString()).orElse("");
+        ArmoryQuoteResponsePayload quote = matchingQuote(selectedId, selectedLevel);
+        if (quote != null && quote.valid()) {
+            graphics.drawString(font, "Стоимость:", leftPos + 270, topPos + 157, MUTED);
+            int costY = topPos + 171;
+            for (ArmoryQuoteResponsePayload.PriceItem price : quote.price()) {
+                ResourceLocation itemId = ResourceLocation.tryParse(price.itemId());
+                if (itemId != null && BuiltInRegistries.ITEM.containsKey(itemId)) {
+                    ItemStack item = new ItemStack(BuiltInRegistries.ITEM.get(itemId));
+                    graphics.drawString(font, "x" + price.count(), leftPos + 270, costY + 4,
+                            quote.affordable() ? GOLD : 0xFFB35B42);
+                    graphics.renderItem(item, leftPos + 309, costY);
+                    costY += 19;
+                }
+            }
+            graphics.drawString(font, quote.message(), leftPos + 270, topPos + 215,
+                    quote.affordable() ? GOLD : 0xFFB35B42);
+        } else if (quote != null) {
+            graphics.drawString(font, quote.message(), leftPos + 270, topPos + 157, 0xFFB35B42);
+        }
+
+        var result = ArmoryClientState.getTransactionResult();
+        if (result != null) {
+            graphics.drawString(font, result.message(), leftPos + 76, topPos + 270,
+                    result.success() ? GOLD : 0xFFB35B42);
+        }
     }
 
     @Override
@@ -236,6 +362,7 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         super.render(graphics, mouseX, mouseY, partialTick);
         refreshEnchantments();
+        updateQuoteRequest();
         renderTooltip(graphics, mouseX, mouseY);
     }
 

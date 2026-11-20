@@ -24,9 +24,13 @@ public final class FrontierPlayerData extends SavedData {
         if (playerId == null) {
             throw new IllegalArgumentException("playerId cannot be null");
         }
-        PlayerProgress progress = players.computeIfAbsent(playerId, ignored -> new PlayerProgress());
+        PlayerProgress progress = players.get(playerId);
+        if (progress == null) {
+            progress = new PlayerProgress();
+            players.put(playerId, progress);
+            setDirty();
+        }
         progress.setChangeListener(this::setDirty);
-        setDirty();
         return progress;
     }
 

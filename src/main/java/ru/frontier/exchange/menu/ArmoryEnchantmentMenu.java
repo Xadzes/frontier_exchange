@@ -36,6 +36,10 @@ public class ArmoryEnchantmentMenu extends AbstractContainerMenu {
         return itemContainer.getItem(0);
     }
 
+    public void setTargetStack(ItemStack stack) {
+        itemContainer.setItem(0, stack);
+    }
+
     @Override
     public boolean stillValid(Player player) {
         return true;

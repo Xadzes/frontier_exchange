@@ -23,3 +23,17 @@ Additional Resources:
 ==========
 Community Documentation: https://docs.neoforged.net/  
 NeoForged Discord: https://discord.neoforged.net/
+
+## Armory enchanting economy
+
+On the first launch, the server creates `config/frontier_exchange/enchantments.json`.
+It contains per-level base costs, `COMMON`/`ADVANCED`/`RARE` multipliers, and
+per-enchantment category and chapter rules. A transition price can contain
+multiple item IDs. When upgrading an existing enchantment, only transitions
+above its current level through the requested level are charged. Single-level
+enchantments require a `fixed_price` entry.
+
+The server validates item compatibility, conflicts, chapter access, maximum
+level, and payment, then applies the enchantment and deducts resources as one
+transaction. The UI only displays the quote returned by the server; it never
+calculates the price or consumes experience.

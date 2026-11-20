@@ -19,6 +19,7 @@ import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.fml.loading.FMLPaths;
 import ru.frontier.exchange.economy.ExchangeCatalog;
+import ru.frontier.exchange.economy.ArmoryEnchantingService;
 import net.minecraft.world.inventory.MenuType;
 import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -31,10 +32,18 @@ import ru.frontier.exchange.menu.ArmoryEnchantmentMenu;
 import ru.frontier.exchange.network.ExchangeCatalogSyncPayload;
 import ru.frontier.exchange.network.ExchangeExecutePayload;
 import ru.frontier.exchange.network.ExchangeResultPayload;
+import ru.frontier.exchange.network.ArmoryQuoteRequestPayload;
+import ru.frontier.exchange.network.ArmoryQuoteResponsePayload;
+import ru.frontier.exchange.network.ArmoryEnchantRequestPayload;
+import ru.frontier.exchange.network.ArmoryTransactionResultPayload;
 import ru.frontier.exchange.economy.ExchangeTransaction;
 import net.neoforged.fml.loading.FMLEnvironment;
 import ru.frontier.exchange.client.ResourceExchangeClient;
 import ru.frontier.exchange.client.ResourceExchangeClientCatalog;
+import ru.frontier.exchange.client.ArmoryClientState;
+import ru.frontier.exchange.menu.ArmoryEnchantmentMenu;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 
 
 @Mod(FrontierExchange.MOD_ID)
@@ -116,7 +125,11 @@ public FrontierExchange(IEventBus modBus) {
     ExchangeCatalog.get().load(FMLPaths.CONFIGDIR.get()
             .resolve(MOD_ID)
             .resolve("exchanges.json"));
+    ArmoryEnchantingService.get().load(FMLPaths.CONFIGDIR.get()
+            .resolve(MOD_ID)
+            .resolve("enchantments.json"));
     modBus.addListener(this::registerNetwork);
+    NeoForge.EVENT_BUS.addListener(this::onPlayerLogout);
     if (FMLEnvironment.dist.isClient()) {
         modBus.addListener(ResourceExchangeClient::registerScreens);
     }
@@ -164,6 +177,53 @@ private void registerNetwork(RegisterPayloadHandlersEvent event) {
                 }
             })
     );
+    registrar.playToClient(
+            ArmoryQuoteResponsePayload.TYPE,
+            ArmoryQuoteResponsePayload.STREAM_CODEC,
+            (payload, context) -> context.enqueueWork(() -> ArmoryClientState.setQuote(payload))
+    );
+    registrar.playToClient(
+            ArmoryTransactionResultPayload.TYPE,
+            ArmoryTransactionResultPayload.STREAM_CODEC,
+            (payload, context) -> context.enqueueWork(() -> ArmoryClientState.setTransactionResult(payload))
+    );
+    registrar.playToServer(
+            ArmoryQuoteRequestPayload.TYPE,
+            ArmoryQuoteRequestPayload.STREAM_CODEC,
+            (payload, context) -> context.enqueueWork(() -> {
+                if (context.player() instanceof net.minecraft.server.level.ServerPlayer serverPlayer
+                        && serverPlayer.containerMenu instanceof ArmoryEnchantmentMenu menu
+                        && menu.containerId == payload.containerId()) {
+                    ArmoryEnchantingService.Quote quote = ArmoryEnchantingService.get()
+                            .quote(serverPlayer, menu, payload.enchantmentId(), payload.targetLevel());
+                    PacketDistributor.sendToPlayer(serverPlayer,
+                            ArmoryQuoteResponsePayload.from(payload.requestId(), quote));
+                }
+            })
+    );
+    registrar.playToServer(
+            ArmoryEnchantRequestPayload.TYPE,
+            ArmoryEnchantRequestPayload.STREAM_CODEC,
+            (payload, context) -> context.enqueueWork(() -> {
+                if (!(context.player() instanceof net.minecraft.server.level.ServerPlayer serverPlayer)
+                        || !(serverPlayer.containerMenu instanceof ArmoryEnchantmentMenu menu)
+                        || menu.containerId != payload.containerId()) {
+                    return;
+                }
+
+                ArmoryEnchantingService service = ArmoryEnchantingService.get();
+                boolean accepted = service.acceptTransaction(serverPlayer.getUUID(), payload.transactionId());
+                ArmoryEnchantingService.TransactionResult result = accepted
+                        ? service.enchant(serverPlayer, menu, payload.enchantmentId(), payload.targetLevel())
+                        : new ArmoryEnchantingService.TransactionResult(false, "Повторный запрос операции отклонён");
+                PacketDistributor.sendToPlayer(serverPlayer,
+                        new ArmoryTransactionResultPayload(result.success(), result.message()));
+            })
+    );
+}
+
+private void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+    ArmoryEnchantingService.get().forgetPlayer(event.getEntity().getUUID());
 }
 
 }
