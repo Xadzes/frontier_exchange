@@ -1,0 +1,11 @@
+
+{
+  "itemGroup.frontier_exchange": "Frontier Exchange",
+  "block.frontier_exchange.resource_exchange": "Обменный терминал",
+  "block.frontier_exchange.armory_terminal": "Арсенал",
+  "block.frontier_exchange.upgrade_workbench": "Мастерская улучшений",
+  "item.frontier_exchange.resource_exchange": "Обменный терминал",
+  "item.frontier_exchange.armory_terminal": "Арсенал",
+  "item.frontier_exchange.upgrade_workbench": "Мастерская улучшений",
+  "screen.frontier_exchange.resource_exchange": "Frontier Exchange"
+}
