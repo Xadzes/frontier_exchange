@@ -14,5 +14,7 @@ public final class ResourceExchangeClient {
     public static void registerScreens(RegisterMenuScreensEvent event) {
         event.register(FrontierExchange.RESOURCE_EXCHANGE_MENU.get(),
                 ResourceExchangeScreen::new);
+        event.register(FrontierExchange.ARMORY_ENCHANTMENT_MENU.get(),
+                ArmoryEnchantmentScreen::new);
     }
 }

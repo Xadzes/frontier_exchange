@@ -25,7 +25,9 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import ru.frontier.exchange.block.ResourceExchangeBlock;
+import ru.frontier.exchange.block.ArmoryEnchantmentBlock;
 import ru.frontier.exchange.menu.ExchangeMenu;
+import ru.frontier.exchange.menu.ArmoryEnchantmentMenu;
 import ru.frontier.exchange.network.ExchangeCatalogSyncPayload;
 import ru.frontier.exchange.network.ExchangeExecutePayload;
 import ru.frontier.exchange.network.ExchangeResultPayload;
@@ -63,10 +65,13 @@ public class FrontierExchange {
     public static final DeferredHolder<MenuType<?>, MenuType<ExchangeMenu>> RESOURCE_EXCHANGE_MENU =
             MENUS.register("resource_exchange",
                     () -> IMenuTypeExtension.create(ExchangeMenu::new));
+    public static final DeferredHolder<MenuType<?>, MenuType<ArmoryEnchantmentMenu>> ARMORY_ENCHANTMENT_MENU =
+            MENUS.register("armory_enchantment",
+                    () -> IMenuTypeExtension.create(ArmoryEnchantmentMenu::new));
 
-    public static final DeferredBlock<Block> ARMORY_TERMINAL =
+    public static final DeferredBlock<ArmoryEnchantmentBlock> ARMORY_TERMINAL =
             BLOCKS.register("armory_terminal",
-                    () -> new Block(BlockBehaviour.Properties.of()
+                    () -> new ArmoryEnchantmentBlock(BlockBehaviour.Properties.of()
                             .strength(3.0F)
                             .requiresCorrectToolForDrops()));
 
