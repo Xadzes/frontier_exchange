@@ -17,8 +17,6 @@ import ru.frontier.exchange.network.ExchangeExecutePayload;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-
 public class ResourceExchangeScreen extends Screen implements MenuAccess<ExchangeMenu> {
     private static final int COLOR_BACKGROUND = 0xFF101010;
     private static final int COLOR_PANEL = 0xFF1B1712;
@@ -43,8 +41,8 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
 
     @Override
     protected void init() {
-        int left = (this.width - 260) / 2;
-        int top = (this.height - 210) / 2;
+        int left = (this.width - 320) / 2;
+        int top = (this.height - 240) / 2;
 
         addRenderableWidget(Button.builder(Component.literal("Все"), button -> setCategory("all"))
                 .bounds(left + 8, top + 28, 58, 18).build(GoldButton::new));
@@ -54,8 +52,7 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
                 .bounds(left + 132, top + 28, 58, 18).build(GoldButton::new));
         addRenderableWidget(Button.builder(Component.literal("Frontier"), button -> setCategory("frontier"))
                 .bounds(left + 194, top + 28, 58, 18).build(GoldButton::new));
-
-        int opsY = top + 184;
+        int opsY = top + 210;
         addRenderableWidget(Button.builder(Component.literal("x1"), button -> operations = 1)
                 .bounds(left + 8, opsY, 38, 18).build(GoldButton::new));
         addRenderableWidget(Button.builder(Component.literal("x4"), button -> operations = 4)
@@ -107,17 +104,17 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        int left = (this.width - 260) / 2;
-        int top = (this.height - 210) / 2;
+        int left = (this.width - 320) / 2;
+        int top = (this.height - 240) / 2;
 
         graphics.fill(0, 0, this.width, this.height, 0xE0060606);
-        graphics.fill(left, top, left + 260, top + 210, COLOR_BACKGROUND);
-        graphics.renderOutline(left, top, 260, 210, COLOR_BORDER);
-        graphics.drawCenteredString(this.font, this.title, left + 130, top + 8, COLOR_GOLD);
+        renderGradientPanel(graphics, left, top, 320, 240);
+        renderGoldFrame(graphics, left, top, 320, 240);
+        renderTopEmblem(graphics, left, top);
 
         super.render(graphics, mouseX, mouseY, partialTick);
 
-        int listTop = top + 50;
+        int listTop = top + 52;
         int visibleRows = 5;
         maxScrollOffset = Math.max(0, visibleContracts.size() - visibleRows);
         if (scrollOffset > maxScrollOffset) {
@@ -137,52 +134,38 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
             boolean unlocked = isUnlocked(contract);
 
             int panelColor = chosen ? 0xFF4A351A : hovered ? 0xFF29231B : COLOR_PANEL;
-            graphics.fill(left + 8, y, left + 252, y + 21, panelColor);
-            graphics.renderOutline(left + 8, y, 244, 21,
+            graphics.fill(left + 32, y, left + 288, y + 21, panelColor);
+            graphics.renderOutline(left + 32, y, 256, 21,
                     chosen ? COLOR_GOLD : unlocked ? COLOR_BORDER : 0xFF5A2E25);
 
             ItemStack input = getItem(contract.inputItem());
             ItemStack output = getItem(contract.outputItem());
+            int inputX = left + 74;
+            int outputX = left + 206;
+
             if (!input.isEmpty()) {
-                input.setCount(contract.inputCount());
-                graphics.renderItem(input, left + 12, y + 2);
+                input.setCount(1);
+                graphics.drawString(this.font, "x" + contract.inputCount(),
+                        inputX - 24, y + 7, unlocked ? COLOR_GOLD : COLOR_LOCKED);
+                graphics.renderItem(input, inputX - 2, y + 2);
             }
             if (!output.isEmpty()) {
-                output.setCount(contract.outputCount());
-                graphics.renderItem(output, left + 58, y + 2);
+                output.setCount(1);
+                graphics.drawString(this.font, "x" + contract.outputCount(),
+                        outputX - 24, y + 7, unlocked ? COLOR_GOLD : COLOR_LOCKED);
+                graphics.renderItem(output, outputX - 2, y + 2);
             }
+            graphics.drawCenteredString(this.font, "→", left + 160, y + 7,
+                    unlocked ? 0xFFFFB52E : COLOR_LOCKED);
 
-            graphics.drawString(this.font,
-                    contract.inputCount() + " → " + contract.outputCount(),
-                    left + 82, y + 7,
-                    unlocked ? COLOR_TEXT : COLOR_LOCKED);
-
-            String inputName = input.getHoverName().getString();
-            String outputName = output.getHoverName().getString();
-            if (!inputName.isBlank() && !outputName.isBlank()) {
-                String names = inputName + " → " + outputName;
-                int maxWidth = 112;
-                if (this.font.width(names) > maxWidth) {
-                    while (!names.isEmpty() && this.font.width(names) > maxWidth) {
-                        names = names.substring(0, names.length() - 1);
-                    }
-                    names = names + "...";
-                }
-                graphics.drawString(this.font, names, left + 82, y + 15, COLOR_MUTED);
-            }
-
-            if (!unlocked) {
-                graphics.drawString(this.font,
-                        "Закрыто: " + contract.unlockChapter().toUpperCase(Locale.ROOT),
-                        left + 132, y + 7, COLOR_LOCKED);
-            }
         }
 
         var result = ResourceExchangeClientCatalog.getResult();
         if (result != null) {
             status = result.message();
         }
-        graphics.drawString(this.font, status, left + 8, top + 174,
+        renderSideMotifs(graphics, left, top);
+        graphics.drawString(this.font, status, left + 32, top + 192,
                 status.contains("Нет") || status.contains("Недостаточно")
                         || status.contains("закрыт") ? COLOR_LOCKED : COLOR_GOLD);
     }
@@ -193,6 +176,61 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
     }
 
     private int maxScrollOffset;
+
+    private void renderGradientPanel(GuiGraphics graphics, int left, int top, int width, int height) {
+        for (int y = 0; y < height; y++) {
+            int red = 16 - (y * 3 / height);
+            int green = 14 - (y * 2 / height);
+            int blue = 18 + (y * 10 / height);
+            int color = 0xFF000000
+                    | (Math.max(0, red) << 16)
+                    | (Math.max(0, green) << 8)
+                    | Math.max(0, blue);
+            graphics.fill(left, top + y, left + width, top + y + 1, color);
+        }
+    }
+
+    private void renderGoldFrame(GuiGraphics graphics, int left, int top, int width, int height) {
+        graphics.renderOutline(left, top, width, height, 0xFFFFB52E);
+        graphics.renderOutline(left + 2, top + 2, width - 4, height - 4, 0xFF8A5A18);
+        graphics.renderOutline(left + 4, top + 4, width - 8, height - 8, 0xFF3F2A12);
+    }
+
+    private void renderTopEmblem(GuiGraphics graphics, int left, int top) {
+        int leftSquare = left + 18;
+        int rightSquare = left + 274;
+        int y = top + 12;
+
+        graphics.fill(leftSquare, y, leftSquare + 28, y + 28, 0xFF151015);
+        graphics.renderOutline(leftSquare, y, 28, 28, 0xFFFFC247);
+        graphics.renderOutline(leftSquare + 2, y + 2, 24, 24, 0xFF9A641B);
+
+        graphics.fill(rightSquare, y, rightSquare + 28, y + 28, 0xFF151015);
+        graphics.renderOutline(rightSquare, y, 28, 28, 0xFFFFC247);
+        graphics.renderOutline(rightSquare + 2, y + 2, 24, 24, 0xFF9A641B);
+
+        graphics.drawString(this.font, "M", leftSquare + 10, y + 10, 0xFFFFD76A);
+        graphics.drawString(this.font, "I", rightSquare + 12, y + 10, 0xFFE0D5BF);
+        graphics.drawCenteredString(this.font, "→", left + 160, y + 9, 0xFFFFB52E);
+    }
+
+    private void renderSideMotifs(GuiGraphics graphics, int left, int top) {
+        int y = top + 58;
+        for (int row = 0; row < 5; row++) {
+            int motifY = y + row * 24;
+            drawBagArrowIngot(graphics, left + 5, motifY);
+            drawBagArrowIngot(graphics, left + 300, motifY);
+        }
+    }
+
+    private void drawBagArrowIngot(GuiGraphics graphics, int x, int y) {
+        graphics.fill(x + 2, y + 5, x + 12, y + 15, 0xFF6A4422);
+        graphics.renderOutline(x + 2, y + 5, 10, 10, 0xFFFFA92F);
+        graphics.fill(x + 5, y + 2, x + 9, y + 5, 0xFFC88A31);
+        graphics.drawString(this.font, "→", x + 7, y + 3, 0xFFFFC247);
+        graphics.fill(x + 14, y + 7, x + 19, y + 13, 0xFFC6C0B3);
+        graphics.renderOutline(x + 14, y + 7, 5, 6, 0xFF8A6A35);
+    }
 
     private static final class GoldButton extends Button {
         private GoldButton(Builder builder) {
@@ -219,16 +257,16 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int left = (this.width - 260) / 2;
-        int top = (this.height - 210) / 2;
-        int listTop = top + 50;
+        int left = (this.width - 320) / 2;
+        int top = (this.height - 240) / 2;
+        int listTop = top + 52;
         for (int row = 0; row < 5; row++) {
             int index = scrollOffset + row;
             if (index >= visibleContracts.size()) {
                 break;
             }
             int y = listTop + row * 24;
-            if (mouseX >= left + 8 && mouseX <= left + 252
+            if (mouseX >= left + 32 && mouseX <= left + 288
                     && mouseY >= y && mouseY <= y + 21) {
                 selected = visibleContracts.get(index);
                 status = isUnlocked(selected)
