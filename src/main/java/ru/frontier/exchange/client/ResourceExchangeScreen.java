@@ -115,6 +115,8 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
         graphics.renderOutline(left, top, 260, 210, COLOR_BORDER);
         graphics.drawCenteredString(this.font, this.title, left + 130, top + 8, COLOR_GOLD);
 
+        super.render(graphics, mouseX, mouseY, partialTick);
+
         int listTop = top + 50;
         int visibleRows = 5;
         maxScrollOffset = Math.max(0, visibleContracts.size() - visibleRows);
@@ -155,6 +157,20 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
                     left + 82, y + 7,
                     unlocked ? COLOR_TEXT : COLOR_LOCKED);
 
+            String inputName = input.getHoverName().getString();
+            String outputName = output.getHoverName().getString();
+            if (!inputName.isBlank() && !outputName.isBlank()) {
+                String names = inputName + " → " + outputName;
+                int maxWidth = 112;
+                if (this.font.width(names) > maxWidth) {
+                    while (!names.isEmpty() && this.font.width(names) > maxWidth) {
+                        names = names.substring(0, names.length() - 1);
+                    }
+                    names = names + "...";
+                }
+                graphics.drawString(this.font, names, left + 82, y + 15, COLOR_MUTED);
+            }
+
             if (!unlocked) {
                 graphics.drawString(this.font,
                         "Закрыто: " + contract.unlockChapter().toUpperCase(Locale.ROOT),
@@ -169,8 +185,11 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
         graphics.drawString(this.font, status, left + 8, top + 174,
                 status.contains("Нет") || status.contains("Недостаточно")
                         || status.contains("закрыт") ? COLOR_LOCKED : COLOR_GOLD);
+    }
 
-        super.render(graphics, mouseX, mouseY, partialTick);
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // This screen uses an opaque custom panel and must not invoke Minecraft's blurred world shader.
     }
 
     private int maxScrollOffset;
