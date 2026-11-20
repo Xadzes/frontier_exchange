@@ -44,25 +44,28 @@ public class ResourceExchangeScreen extends Screen implements MenuAccess<Exchang
         int left = (this.width - 360) / 2;
         int top = (this.height - 240) / 2;
 
+        int categoryStart = left + 58;
         addRenderableWidget(Button.builder(Component.literal("Все"), button -> setCategory("all"))
-                .bounds(left + 8, top + 28, 58, 18).build(GoldButton::new));
+                .bounds(categoryStart, top + 28, 58, 18).build(GoldButton::new));
         addRenderableWidget(Button.builder(Component.literal("База"), button -> setCategory("basic_materials"))
-                .bounds(left + 70, top + 28, 58, 18).build(GoldButton::new));
+                .bounds(categoryStart + 62, top + 28, 58, 18).build(GoldButton::new));
         addRenderableWidget(Button.builder(Component.literal("Supply"), button -> setCategory("supply"))
-                .bounds(left + 132, top + 28, 58, 18).build(GoldButton::new));
+                .bounds(categoryStart + 124, top + 28, 58, 18).build(GoldButton::new));
         addRenderableWidget(Button.builder(Component.literal("Frontier"), button -> setCategory("frontier"))
-                .bounds(left + 194, top + 28, 58, 18).build(GoldButton::new));
+                .bounds(categoryStart + 186, top + 28, 58, 18).build(GoldButton::new));
+
         int opsY = top + 210;
+        int actionsStart = left + 58;
         addRenderableWidget(Button.builder(Component.literal("x1"), button -> operations = 1)
-                .bounds(left + 8, opsY, 38, 18).build(GoldButton::new));
+                .bounds(actionsStart, opsY, 38, 18).build(GoldButton::new));
         addRenderableWidget(Button.builder(Component.literal("x4"), button -> operations = 4)
-                .bounds(left + 50, opsY, 38, 18).build(GoldButton::new));
+                .bounds(actionsStart + 42, opsY, 38, 18).build(GoldButton::new));
         addRenderableWidget(Button.builder(Component.literal("x16"), button -> operations = 16)
-                .bounds(left + 92, opsY, 38, 18).build(GoldButton::new));
+                .bounds(actionsStart + 84, opsY, 38, 18).build(GoldButton::new));
         addRenderableWidget(Button.builder(Component.literal("x64"), button -> operations = 64)
-                .bounds(left + 134, opsY, 38, 18).build(GoldButton::new));
+                .bounds(actionsStart + 126, opsY, 38, 18).build(GoldButton::new));
         addRenderableWidget(Button.builder(Component.literal("Обменять"), button -> confirm())
-                .bounds(left + 176, opsY, 76, 18).build(GoldButton::new));
+                .bounds(actionsStart + 168, opsY, 76, 18).build(GoldButton::new));
 
         refreshContracts();
     }
