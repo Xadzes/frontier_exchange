@@ -10,21 +10,22 @@ import net.minecraft.world.item.ItemStack;
 import ru.frontier.exchange.FrontierExchange;
 
 public class ArmoryEnchantmentMenu extends AbstractContainerMenu {
+    private static final int INVENTORY_START_X = 99;
     private final SimpleContainer itemContainer = new SimpleContainer(1);
 
     public ArmoryEnchantmentMenu(int containerId, Inventory inventory) {
         super(FrontierExchange.ARMORY_ENCHANTMENT_MENU.get(), containerId);
 
-        addSlot(new Slot(itemContainer, 0, 27, 86));
+        addSlot(new Slot(itemContainer, 0, 50, 49));
 
         for (int row = 0; row < 3; row++) {
             for (int column = 0; column < 9; column++) {
                 addSlot(new Slot(inventory, column + row * 9 + 9,
-                        20 + column * 18, 181 + row * 18));
+                        INVENTORY_START_X + column * 18, 181 + row * 18));
             }
         }
         for (int column = 0; column < 9; column++) {
-            addSlot(new Slot(inventory, column, 20 + column * 18, 239));
+            addSlot(new Slot(inventory, column, INVENTORY_START_X + column * 18, 239));
         }
     }
 

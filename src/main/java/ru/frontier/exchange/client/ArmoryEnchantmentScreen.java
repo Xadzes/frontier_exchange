@@ -9,7 +9,6 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.tags.ItemTags;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantment;
@@ -31,14 +30,13 @@ import java.util.UUID;
 public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEnchantmentMenu> {
     private static final int PANEL_WIDTH = 360;
     private static final int PANEL_HEIGHT = 280;
+    private static final int LIST_ROW_HEIGHT = 17;
     private static final int GOLD = 0xFFFFC247;
     private static final int TEXT = 0xFFE6DCC8;
     private static final int MUTED = 0xFF9B8F78;
 
     private final List<Holder<Enchantment>> visibleEnchantments = new ArrayList<>();
     private Holder<Enchantment> selected;
-    private String categoryFilter = "all";
-    private String powerFilter = "all";
     private int selectedLevel = 1;
     private int scrollOffset;
     private int maxScrollOffset;
@@ -48,7 +46,10 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
     private int listRows;
     private static int quoteRequestSequence;
     private int activeQuoteRequestId = -1;
+    private Button decreaseLevelButton;
+    private Button increaseLevelButton;
     private Button confirmButton;
+    private ItemStack observedTarget = ItemStack.EMPTY;
     private String lastQuoteEnchantment = "";
     private int lastQuoteLevel;
     private ItemStack lastQuoteTarget = ItemStack.EMPTY;
@@ -65,25 +66,16 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
     protected void init() {
         super.init();
         ArmoryClientState.clear();
-        listX = leftPos + 83;
-        listY = topPos + 67;
-        listWidth = 176;
-        listRows = 6;
+        listX = leftPos + 132;
+        listY = topPos + 31;
+        listWidth = 216;
+        listRows = 7;
 
-        addButton("Все", leftPos + 10, topPos + 28, 48, () -> setCategory("all"));
-        addButton("Боевые", leftPos + 62, topPos + 28, 58, () -> setCategory("combat"));
-        addButton("Защита", leftPos + 124, topPos + 28, 58, () -> setCategory("defense"));
-        addButton("Инструм.", leftPos + 186, topPos + 28, 62, () -> setCategory("tools"));
-        addButton("Особые", leftPos + 252, topPos + 28, 58, () -> setCategory("special"));
-
-        addButton("Все", leftPos + 92, topPos + 48, 46, () -> setPower("all"));
-        addButton("Базовая", leftPos + 142, topPos + 48, 58, () -> setPower("base"));
-        addButton("Продв.", leftPos + 204, topPos + 48, 54, () -> setPower("advanced"));
-        addButton("Элитная", leftPos + 262, topPos + 48, 60, () -> setPower("elite"));
-
-        addButton("−", leftPos + 289, topPos + 121, 20, () -> changeLevel(-1));
-        addButton("+", leftPos + 335, topPos + 121, 20, () -> changeLevel(1));
-        confirmButton = addButton("Подтвердить", leftPos + 274, topPos + 228, 78, this::confirm);
+        decreaseLevelButton = addButton("−", leftPos + 18, topPos + 78, 20, () -> changeLevel(-1));
+        increaseLevelButton = addButton("+", leftPos + 98, topPos + 78, 20, () -> changeLevel(1));
+        confirmButton = addButton("Зачаровать", leftPos + 228, topPos + 160, 120, this::confirm);
+        decreaseLevelButton.active = false;
+        increaseLevelButton.active = false;
         confirmButton.active = false;
         refreshEnchantments();
     }
@@ -94,33 +86,33 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
                 .build(ArmoryButton::new));
     }
 
-    private void setCategory(String filter) {
-        categoryFilter = filter;
-        scrollOffset = 0;
-        refreshEnchantments();
-    }
-
-    private void setPower(String filter) {
-        powerFilter = filter;
-        scrollOffset = 0;
-        refreshEnchantments();
-    }
-
     private void changeLevel(int offset) {
         if (selected == null) {
             return;
         }
-        int current = currentLevel(selected);
+        int minimumLevel = currentLevel(selected) + 1;
         int maxLevel = selected.value().getMaxLevel();
-        selectedLevel = Math.max(Math.max(1, current + 1),
-                Math.min(maxLevel, selectedLevel + offset));
+        if (minimumLevel > maxLevel) {
+            return;
+        }
+        selectedLevel = Math.max(minimumLevel, Math.min(maxLevel, selectedLevel + offset));
+        updateLevelButtons();
     }
 
     private void refreshEnchantments() {
         visibleEnchantments.clear();
         ItemStack target = menu.getTargetStack();
+        if (!ItemStack.matches(target, observedTarget)) {
+            observedTarget = target.copy();
+            selected = null;
+            selectedLevel = 1;
+            scrollOffset = 0;
+        }
         if (target.isEmpty() || Minecraft.getInstance().level == null) {
             selected = null;
+            maxScrollOffset = 0;
+            scrollOffset = 0;
+            updateLevelButtons();
             return;
         }
 
@@ -134,8 +126,7 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
                     .toList();
             if (!target.supportsEnchantment(holder)
                     || !EnchantmentHelper.isEnchantmentCompatible(otherEnchantments, holder)
-                    || !matchesCategory(holder)
-                    || !matchesPower(enchantment)) {
+                    || current.getLevel(holder) >= enchantment.getMaxLevel()) {
                 return;
             }
             visibleEnchantments.add(holder);
@@ -146,52 +137,24 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
         }
         maxScrollOffset = Math.max(0, visibleEnchantments.size() - listRows);
         scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+        updateLevelButtons();
     }
 
-    private boolean matchesCategory(Holder<Enchantment> enchantment) {
-        if ("all".equals(categoryFilter)) {
-            return true;
+    private void updateLevelButtons() {
+        if (selected == null) {
+            decreaseLevelButton.active = false;
+            increaseLevelButton.active = false;
+            return;
         }
-        var supportedItems = enchantment.value().definition().supportedItems();
-        boolean combat = supportedItems.stream().anyMatch(item ->
-                item.is(ItemTags.WEAPON_ENCHANTABLE)
-                        || item.is(ItemTags.SHARP_WEAPON_ENCHANTABLE)
-                        || item.is(ItemTags.BOW_ENCHANTABLE)
-                        || item.is(ItemTags.CROSSBOW_ENCHANTABLE)
-                        || item.is(ItemTags.TRIDENT_ENCHANTABLE));
-        boolean defense = supportedItems.stream().anyMatch(item -> item.is(ItemTags.ARMOR_ENCHANTABLE));
-        boolean tools = supportedItems.stream().anyMatch(item -> item.is(ItemTags.MINING_ENCHANTABLE));
-        return switch (categoryFilter) {
-            case "combat" -> combat;
-            case "defense" -> defense;
-            case "tools" -> tools;
-            case "special" -> !combat && !defense && !tools;
-            default -> true;
-        };
-    }
-
-    private boolean matchesPower(Enchantment enchantment) {
-        int weight = enchantment.getWeight();
-        return switch (powerFilter) {
-            case "base" -> weight >= 6;
-            case "advanced" -> weight >= 3 && weight <= 5;
-            case "elite" -> weight <= 2;
-            default -> true;
-        };
+        int minimumLevel = currentLevel(selected) + 1;
+        int maxLevel = selected.value().getMaxLevel();
+        boolean canUpgrade = minimumLevel <= maxLevel;
+        decreaseLevelButton.active = canUpgrade && selectedLevel > minimumLevel;
+        increaseLevelButton.active = canUpgrade && selectedLevel < maxLevel;
     }
 
     private int currentLevel(Holder<Enchantment> enchantment) {
         return EnchantmentHelper.getEnchantmentsForCrafting(menu.getTargetStack()).getLevel(enchantment);
-    }
-
-    private ItemStack previewStack() {
-        ItemStack target = menu.getTargetStack();
-        if (target.isEmpty() || selected == null) {
-            return ItemStack.EMPTY;
-        }
-        ItemStack preview = target.copy();
-        EnchantmentHelper.updateEnchantments(preview, enchantments -> enchantments.set(selected, selectedLevel));
-        return preview;
     }
 
     private void updateQuoteRequest() {
@@ -283,64 +246,73 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
 
     @Override
     protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        graphics.fill(0, 0, width, height, 0xE0060606);
-        for (int y = 0; y < imageHeight; y++) {
-            int blue = 18 + y * 10 / imageHeight;
-            graphics.fill(leftPos, topPos + y, leftPos + imageWidth, topPos + y + 1,
-                    0xFF100E00 | blue);
-        }
-        graphics.renderOutline(leftPos, topPos, imageWidth, imageHeight, 0xFFFFB52E);
-        graphics.renderOutline(leftPos + 2, topPos + 2, imageWidth - 4, imageHeight - 4, 0xFF8A5A18);
+        graphics.fill(0, 0, width, height, 0xFF000000);
+        graphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, 0xFF050505);
+        graphics.renderOutline(leftPos, topPos, imageWidth, imageHeight, 0xFF8A5A18);
+        graphics.renderOutline(leftPos + 2, topPos + 2, imageWidth - 4, imageHeight - 4, 0xFF33240D);
 
-        graphics.fill(leftPos + 14, topPos + 75, leftPos + 72, topPos + 133, 0xFF151015);
-        graphics.renderOutline(leftPos + 14, topPos + 75, 58, 58, GOLD);
-        graphics.fill(leftPos + 270, topPos + 65, leftPos + 348, topPos + 116, 0xFF151015);
-        graphics.renderOutline(leftPos + 270, topPos + 65, 78, 51, 0xFF8A5A18);
+        graphics.fill(leftPos + 44, topPos + 43, leftPos + 74, topPos + 73, 0xFF101010);
+        graphics.renderOutline(leftPos + 44, topPos + 43, 30, 30, GOLD);
+        graphics.fill(listX - 3, listY - 3,
+                listX + listWidth + 3, listY + listRows * LIST_ROW_HEIGHT - 1, 0xFF080808);
+        graphics.renderOutline(listX - 3, listY - 3,
+                listWidth + 6, listRows * LIST_ROW_HEIGHT, 0xFF67451E);
 
         refreshEnchantments();
         for (int row = 0; row < listRows; row++) {
             int index = scrollOffset + row;
-            int y = listY + row * 15;
-            graphics.fill(listX, y, listX + listWidth, y + 14, 0xFF1B1712);
-            graphics.renderOutline(listX, y, listWidth, 14,
-                    index < visibleEnchantments.size() && visibleEnchantments.get(index).equals(selected)
-                            ? GOLD : 0xFF67451E);
+            int y = listY + row * LIST_ROW_HEIGHT;
+            boolean isSelected = index < visibleEnchantments.size()
+                    && visibleEnchantments.get(index).equals(selected);
+            graphics.fill(listX, y, listX + listWidth, y + LIST_ROW_HEIGHT - 1,
+                    isSelected ? 0xFF21180C : 0xFF0D0D0D);
+            graphics.renderOutline(listX, y, listWidth, LIST_ROW_HEIGHT - 1,
+                    isSelected ? GOLD : 0xFF392A15);
             if (index < visibleEnchantments.size()) {
                 Holder<Enchantment> enchantment = visibleEnchantments.get(index);
                 graphics.drawString(font, Enchantment.getFullname(enchantment,
-                        Math.max(1, currentLevel(enchantment))), listX + 4, y + 3, TEXT);
+                        Math.max(1, currentLevel(enchantment))), listX + 4, y + 4, TEXT);
             }
         }
 
-        ItemStack preview = previewStack();
-        if (!preview.isEmpty()) {
-            graphics.renderItem(preview, leftPos + 300, topPos + 79);
+        if (menu.getTargetStack().isEmpty()) {
+            graphics.drawCenteredString(font, "Положите предмет в слот",
+                    listX + listWidth / 2, listY + 53, MUTED);
         }
-        if (selected != null) {
-            graphics.drawCenteredString(font, "Уровень " + selectedLevel,
-                    leftPos + 322, topPos + 127, GOLD);
-        }
+
+        graphics.drawCenteredString(font,
+                selected == null ? "Уровень" : "Уровень " + selectedLevel,
+                leftPos + 68, topPos + 82, selected == null ? MUTED : GOLD);
+        graphics.drawString(font, "Цена:", leftPos + 14, topPos + 107, MUTED);
+
         String selectedId = selected == null
                 ? ""
                 : selected.unwrapKey().map(key -> key.location().toString()).orElse("");
         ArmoryQuoteResponsePayload quote = matchingQuote(selectedId, selectedLevel);
-        if (quote != null && quote.valid()) {
-            graphics.drawString(font, "Стоимость:", leftPos + 270, topPos + 157, MUTED);
-            int costY = topPos + 171;
-            for (ArmoryQuoteResponsePayload.PriceItem price : quote.price()) {
+        if (selected != null && quote == null) {
+            graphics.drawString(font, "Расчёт...", leftPos + 14, topPos + 123, MUTED);
+        } else if (quote != null && quote.valid()) {
+            int costY = topPos + 121;
+            for (int i = 0; i < quote.price().size(); i++) {
+                ArmoryQuoteResponsePayload.PriceItem price = quote.price().get(i);
                 ResourceLocation itemId = ResourceLocation.tryParse(price.itemId());
                 if (itemId != null && BuiltInRegistries.ITEM.containsKey(itemId)) {
                     ItemStack item = new ItemStack(BuiltInRegistries.ITEM.get(itemId));
-                    graphics.drawString(font, "x" + price.count(), leftPos + 270, costY + 4,
+                    int column = i % 3;
+                    int row = i / 3;
+                    int x = leftPos + 12 + column * 38;
+                    int y = costY + row * 17;
+                    graphics.renderItem(item, x, y);
+                    graphics.drawString(font, "x" + price.count(), x + 17, y + 4,
                             quote.affordable() ? GOLD : 0xFFB35B42);
-                    graphics.renderItem(item, leftPos + 309, costY);
-                    costY += 19;
                 }
             }
-            graphics.drawString(font, quote.message(), leftPos + 270, topPos + 215,
+            graphics.drawWordWrap(font, Component.literal(quote.message()),
+                    leftPos + 14, topPos + 141, 108,
                     quote.affordable() ? GOLD : 0xFFB35B42);
         } else if (quote != null) {
-            graphics.drawString(font, quote.message(), leftPos + 270, topPos + 157, 0xFFB35B42);
+            graphics.drawWordWrap(font, Component.literal(quote.message()),
+                    leftPos + 14, topPos + 122, 108, 0xFFB35B42);
         }
 
         var result = ArmoryClientState.getTransactionResult();
@@ -352,10 +324,9 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
 
     @Override
     protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
-        graphics.drawCenteredString(font, "Зачаровательня", imageWidth / 2, 8, GOLD);
-        graphics.drawString(font, "Предмет", 19, 67, TEXT);
-        graphics.drawString(font, "Совместимые зачарования", 83, 60, TEXT);
-        graphics.drawString(font, "Предпросмотр", 280, 53, TEXT);
+        graphics.drawCenteredString(font, "Зачарование", imageWidth / 2, 8, GOLD);
+        graphics.drawString(font, "Предмет", 14, 30, TEXT);
+        graphics.drawString(font, "Доступные зачарования", listX - leftPos, 17, TEXT);
     }
 
     @Override
@@ -370,13 +341,14 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         for (int row = 0; row < listRows; row++) {
             int index = scrollOffset + row;
-            int y = listY + row * 15;
+            int y = listY + row * LIST_ROW_HEIGHT;
             if (index < visibleEnchantments.size()
                     && mouseX >= listX && mouseX <= listX + listWidth
-                    && mouseY >= y && mouseY <= y + 14) {
+                    && mouseY >= y && mouseY <= y + LIST_ROW_HEIGHT - 1) {
                 selected = visibleEnchantments.get(index);
                 int current = currentLevel(selected);
                 selectedLevel = Math.min(selected.value().getMaxLevel(), Math.max(1, current + 1));
+                updateLevelButtons();
                 return true;
             }
         }
@@ -386,7 +358,7 @@ public class ArmoryEnchantmentScreen extends AbstractContainerScreen<ArmoryEncha
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (mouseX >= listX && mouseX <= listX + listWidth
-                && mouseY >= listY && mouseY <= listY + listRows * 15) {
+                && mouseY >= listY && mouseY <= listY + listRows * LIST_ROW_HEIGHT) {
             scrollOffset = Math.max(0, Math.min(maxScrollOffset,
                     scrollOffset - (verticalAmount > 0 ? 1 : -1)));
             return true;
